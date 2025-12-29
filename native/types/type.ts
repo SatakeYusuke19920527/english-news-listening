@@ -20,6 +20,14 @@ export type UserSettings = {
   level: CefrLevel;
 };
 
+export type NewsSource =
+  | 'Google'
+  | 'OpenAI'
+  | 'Anthropic'
+  | 'Mistral AI'
+  | 'Microsoft'
+  | 'AWS';
+
 export type UserSettingsUpdateResponse = {
   level: CefrLevel;
   updatedAt: IsoTimestamp;

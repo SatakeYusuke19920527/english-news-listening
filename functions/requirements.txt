@@ -10,3 +10,5 @@ langchain-openai
 python-dotenv
 requests
 openai
+pyjwt
+cryptography

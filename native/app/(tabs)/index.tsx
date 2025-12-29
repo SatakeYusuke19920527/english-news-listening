@@ -1,15 +1,20 @@
 import { Link } from 'expo-router';
-import { useEffect, useMemo } from 'react';
-import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { pickContentByLevel } from '../../lib/newsApi';
-import { useAppDispatch, useAppSelector } from '../../hooks/useRTK';
+import React, { useEffect, useMemo } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { LoadingPing } from '../../components/LoadingPing';
 import { loadNewsList, selectNews } from '../../features/newsSlice';
 import { selectLevel } from '../../features/settingsSlice';
-import { LoadingPing } from '../../components/LoadingPing';
+import { useAppDispatch, useAppSelector } from '../../hooks/useRTK';
+import { pickContentByLevel } from '../../lib/newsApi';
 
 export default function HomeScreen() {
-  const insets = useSafeAreaInsets();
   const dispatch = useAppDispatch();
   const { news, status, error } = useAppSelector(selectNews);
   const level = useAppSelector(selectLevel);
@@ -28,16 +33,15 @@ export default function HomeScreen() {
   }, [dispatch, status]);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top }]}
-    >
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.hero}>
         <View style={styles.heroGlow} />
         <View style={styles.heroGlowSecondary} />
         <Text style={styles.appTitle}>AI News Listening</Text>
-        <Text style={styles.heroHeadline}>Read smart. Listen smarter.</Text>
+        <Text style={styles.heroHeadline}>
+          Listen to today&apos;s news in English!
+        </Text>
         <Text style={styles.heroSubhead}>
           Your daily AI brief, tuned to your English level.
         </Text>
@@ -51,7 +55,7 @@ export default function HomeScreen() {
 
       <View style={styles.sectionHeader}>
         <View>
-          <Text style={styles.sectionTitle}>This week</Text>
+          <Text style={styles.sectionTitle}>Weekly News</Text>
           <Text style={styles.sectionSubtitle}>{todayLabel} · Last 7 days</Text>
         </View>
         <Pressable style={styles.filterChip}>

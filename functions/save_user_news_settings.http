@@ -1,0 +1,13 @@
+### Save user news settings (production)
+POST https://func-english-news-listening-f3ecbfe6hqc0chgt.eastus-01.azurewebsites.net/api/user-news-settings
+Content-Type: application/json
+
+{
+  "userId": "user_123",
+  "Google": true,
+  "OpenAI": true,
+  "Anthropic": false,
+  "MistralAI": false,
+  "Microsoft": true,
+  "AWS": false
+}

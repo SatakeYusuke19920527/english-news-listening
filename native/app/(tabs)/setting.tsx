@@ -1,20 +1,132 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { selectLevel, setLevel } from '../../features/settingsSlice';
+import { useAuth, useOAuth, useUser } from '@clerk/clerk-expo';
+import * as WebBrowser from 'expo-web-browser';
+import React from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
+import { selectNews } from '../../features/newsSlice';
+import {
+  selectLevel,
+  selectNewsSources,
+  setNewsSources,
+  selectNotificationsEnabled,
+  setLevel,
+  setNewsSourceEnabled,
+  setNotificationsEnabled,
+} from '../../features/settingsSlice';
 import { useAppDispatch, useAppSelector } from '../../hooks/useRTK';
+import { pickContentByLevel } from '../../lib/newsApi';
+import {
+  cancelDailyNewsNotifications,
+  ensureNotificationPermissions,
+  scheduleDailyNewsNotification,
+} from '../../lib/notifications';
+import { NewsSource } from '../../types/type';
 
 const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const;
+const NEWS_SOURCES: NewsSource[] = [
+  'Google',
+  'OpenAI',
+  'Anthropic',
+  'Mistral AI',
+  'Microsoft',
+  'AWS',
+];
+
+const USER_SETTINGS_URL = 'https://func-english-news-listening-f3ecbfe6hqc0chgt.eastus-01.azurewebsites.net/api/user-news-settings';
 
 export default function SettingScreen() {
   const dispatch = useAppDispatch();
   const level = useAppSelector(selectLevel);
-  const insets = useSafeAreaInsets();
+  const notificationsEnabled = useAppSelector(selectNotificationsEnabled);
+  const newsSources = useAppSelector(selectNewsSources);
+  const { news } = useAppSelector(selectNews);
+  const { isSignedIn, user } = useUser();
+  const { getToken } = useAuth();
+  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
+  const primaryEmail = user?.primaryEmailAddress?.emailAddress;
+  const displayName =
+    primaryEmail ?? user?.username ?? user?.fullName ?? 'Member';
+  const userId = user?.id;
+  WebBrowser.maybeCompleteAuthSession();
+  const handleGoogleSignIn = async () => {
+    try {
+      const { createdSessionId, setActive } = await startOAuthFlow();
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId });
+      }
+    } catch (err) {
+      console.error(JSON.stringify(err, null, 2));
+    }
+  };
+
+  const fetchUserNewsSources = React.useCallback(async () => {
+    if (!userId) return;
+    try {
+      const response = await fetch(
+        `${USER_SETTINGS_URL}?userId=${encodeURIComponent(userId)}`
+      );
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (!payload?.company) return;
+      const company = payload.company;
+      const nextSources = {
+        Google: Boolean(company.Google),
+        OpenAI: Boolean(company.OpenAI),
+        Anthropic: Boolean(company.Anthropic),
+        'Mistral AI': Boolean(company.MistralAI),
+        Microsoft: Boolean(company.Microsoft),
+        AWS: Boolean(company.AWS),
+      } as const;
+      dispatch(setNewsSources(nextSources));
+    } catch (err) {
+      console.error(JSON.stringify(err, null, 2));
+    }
+  }, [dispatch, userId]);
+
+  React.useEffect(() => {
+    if (!isSignedIn || !userId) return;
+    void fetchUserNewsSources();
+  }, [fetchUserNewsSources, isSignedIn, userId]);
+
+  const saveNewsSources = React.useCallback(
+    async (sources: Record<NewsSource, boolean>) => {
+      if (!userId) return;
+      try {
+        const token = await getToken();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+        await fetch(USER_SETTINGS_URL, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            userId,
+            Google: sources['Google'],
+            OpenAI: sources['OpenAI'],
+            Anthropic: sources['Anthropic'],
+            MistralAI: sources['Mistral AI'],
+            Microsoft: sources['Microsoft'],
+            AWS: sources['AWS'],
+          }),
+        });
+      } catch (err) {
+        console.error(JSON.stringify(err, null, 2));
+      }
+    },
+    [getToken, userId]
+  );
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + 36 }]}
-    >
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
         <Text style={styles.subtitle}>Personalize your learning pace.</Text>
@@ -22,14 +134,20 @@ export default function SettingScreen() {
 
       <View style={styles.loginCard}>
         <View>
-          <Text style={styles.loginTitle}>Not signed in</Text>
+          <Text style={styles.loginTitle}>
+            {isSignedIn ? 'Signed in' : 'Not signed in'}
+          </Text>
           <Text style={styles.loginBody}>
-            Sign in to sync your level and saved articles across devices.
+            {isSignedIn
+              ? `Signed in as ${displayName}.`
+              : 'Sign in to sync your level and saved articles across devices.'}
           </Text>
         </View>
-        <Pressable style={styles.loginButton}>
-          <Text style={styles.loginButtonText}>Sign in</Text>
-        </Pressable>
+        {!isSignedIn && (
+          <Pressable style={styles.loginButton} onPress={handleGoogleSignIn}>
+            <Text style={styles.loginButtonText}>Sign in</Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -81,6 +199,55 @@ export default function SettingScreen() {
           <Text style={styles.preferenceValue}>Off</Text>
         </View>
       </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Notifications</Text>
+        <View style={styles.preferenceCard}>
+          <View>
+            <Text style={styles.preferenceTitle}>Daily 1:00 AM</Text>
+            <Text style={styles.preferenceBody}>
+              Get a daily brief with the latest summary.
+            </Text>
+          </View>
+          <Switch
+            value={notificationsEnabled}
+            onValueChange={async (value) => {
+              if (value) {
+                const granted = await ensureNotificationPermissions();
+                if (!granted) return;
+                await scheduleDailyNewsNotification(
+                  getLatestSummary(news, level)
+                );
+                dispatch(setNotificationsEnabled(true));
+                return;
+              }
+              await cancelDailyNewsNotifications();
+              dispatch(setNotificationsEnabled(false));
+            }}
+            trackColor={{ true: '#FF385C', false: '#E5E7EB' }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>News sources</Text>
+        {NEWS_SOURCES.map((source) => (
+          <View key={source} style={styles.preferenceCard}>
+            <Text style={styles.preferenceTitle}>{source}</Text>
+            <Switch
+              value={newsSources[source]}
+              onValueChange={(value) => {
+                const nextSources = { ...newsSources, [source]: value };
+                dispatch(setNewsSourceEnabled({ source, enabled: value }));
+                void saveNewsSources(nextSources);
+              }}
+              trackColor={{ true: '#FF385C', false: '#E5E7EB' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+        ))}
+      </View>
     </ScrollView>
   );
 }
@@ -92,6 +259,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingBottom: 32,
+    paddingTop: 12,
   },
   header: {
     paddingTop: 0,
@@ -219,3 +387,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+function getLatestSummary(
+  news: { id: string; content: string }[],
+  level: string
+) {
+  if (!news.length) return 'No new stories yet. Check back soon.';
+  const latest = news[0];
+  const text = pickContentByLevel(latest as any, level);
+  return text.length > 140 ? `${text.slice(0, 140).trim()}…` : text;
+}

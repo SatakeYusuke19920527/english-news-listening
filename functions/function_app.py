@@ -9,13 +9,11 @@ import azure.functions as func  # type: ignore
 
 from app.aoai.service import chat_once
 from app.aoai.prompts import cefr_prompt, summary_prompt
-from app.cosmos.repository import create_item, safe_read_item, query_items
+from app.auth.clerk import get_bearer_token, verify_clerk_jwt
+from app.cosmos.repository import create_item, safe_read_item, query_items, upsert_item
 from app.tavily.service import search_openai_news
 
 app = func.FunctionApp()
-
-
-
 
 def _normalize_partition_key(pk_field: str) -> str:
     return pk_field.lstrip("/").strip()
@@ -35,6 +33,22 @@ def _clean_plain_text(text: str) -> str:
     cleaned = cleaned.replace("\n", " ").replace("\r", " ")
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+
+
+def _require_clerk_user_id(req: func.HttpRequest) -> tuple[str | None, func.HttpResponse | None]:
+    token = get_bearer_token(req.headers)
+    if not token:
+        return None, func.HttpResponse("Unauthorized", status_code=401)
+    try:
+        payload = verify_clerk_jwt(token)
+    except Exception:
+        logging.exception("Clerk JWT verification failed")
+        return None, func.HttpResponse("Unauthorized", status_code=401)
+    user_id = payload.get("sub")
+    if not user_id:
+        return None, func.HttpResponse("Unauthorized", status_code=401)
+    return user_id, None
 
 
 @app.timer_trigger(schedule="0 0 0 * * *", arg_name="myTimer", run_on_startup=False,
@@ -123,6 +137,57 @@ def get_news_http(req: func.HttpRequest) -> func.HttpResponse:
     items = query_items(container, "SELECT * FROM c")
     return func.HttpResponse(
         body=json.dumps(items, ensure_ascii=False), # type: ignore
+        mimetype="application/json",
+        status_code=200,
+    )
+
+
+
+
+@app.function_name(name="save_user_news_settings")
+@app.route(route="user-news-settings", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def save_user_news_settings(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return func.HttpResponse("Invalid JSON", status_code=400)
+
+    user_id = payload.get("userId")
+    if not user_id:
+        return func.HttpResponse("userId is required", status_code=400)
+
+    container = os.environ.get("COSMOS_USERS_CONTAINER", "users")
+    now = datetime.now(timezone.utc).isoformat()
+    company_flags = {
+        "Google": bool(payload.get("Google", False)),
+        "OpenAI": bool(payload.get("OpenAI", False)),
+        "Anthropic": bool(payload.get("Anthropic", False)),
+        "MistralAI": bool(payload.get("MistralAI", False)),
+        "Microsoft": bool(payload.get("Microsoft", False)),
+        "AWS": bool(payload.get("AWS", False)),
+    }
+    item = {
+        "id": user_id,
+        "userId": user_id,
+        "company": company_flags,
+        "updatedAt": now,
+    }
+
+    upsert_item(container, item, partition_key=user_id)
+    return func.HttpResponse(status_code=204)
+
+
+@app.function_name(name="get_user_news_settings")
+@app.route(route="user-news-settings", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_user_news_settings(req: func.HttpRequest) -> func.HttpResponse:
+    user_id = req.params.get("userId")
+    if not user_id:
+        return func.HttpResponse("userId is required", status_code=400)
+
+    container = os.environ.get("COSMOS_USERS_CONTAINER", "users")
+    item = safe_read_item(container, user_id, user_id)
+    return func.HttpResponse(
+        body=json.dumps(item or {}, ensure_ascii=False),
         mimetype="application/json",
         status_code=200,
     )

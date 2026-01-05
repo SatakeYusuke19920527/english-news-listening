@@ -179,28 +179,6 @@ export default function SettingScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Playback</Text>
-        <View style={styles.preferenceCard}>
-          <View>
-            <Text style={styles.preferenceTitle}>Voice speed</Text>
-            <Text style={styles.preferenceBody}>
-              Balanced for comprehension
-            </Text>
-          </View>
-          <Text style={styles.preferenceValue}>1.0x</Text>
-        </View>
-        <View style={styles.preferenceCard}>
-          <View>
-            <Text style={styles.preferenceTitle}>Auto play on open</Text>
-            <Text style={styles.preferenceBody}>
-              Start reading aloud automatically
-            </Text>
-          </View>
-          <Text style={styles.preferenceValue}>Off</Text>
-        </View>
-      </View>
-
-      <View style={styles.section}>
         <Text style={styles.sectionLabel}>Notifications</Text>
         <View style={styles.preferenceCard}>
           <View>

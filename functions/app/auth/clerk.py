@@ -5,9 +5,9 @@ import os
 import time
 from typing import Any
 
-import jwt
-import requests
-from jwt import algorithms
+import jwt # type: ignore
+import requests # type: ignore
+from jwt import algorithms # type: ignore
 
 _JWKS_CACHE: dict[str, Any] = {
     "expires_at": 0.0,

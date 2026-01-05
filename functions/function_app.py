@@ -10,8 +10,8 @@ import azure.functions as func  # type: ignore
 from app.aoai.service import chat_once
 from app.aoai.prompts import cefr_prompt, summary_prompt
 from app.auth.clerk import get_bearer_token, verify_clerk_jwt
-from app.cosmos.repository import create_item, safe_read_item, query_items, upsert_item
-from app.tavily.service import search_openai_news
+from app.cosmos.repository import create_item, safe_read_item, query_items
+from app.tavily.service import search_company_news
 
 app = func.FunctionApp()
 
@@ -60,81 +60,108 @@ def get_news(myTimer: func.TimerRequest) -> None:
 
     container = os.environ.get("COSMOS_CONTAINER", "news_items")
     pk_field = _normalize_partition_key(os.environ.get("COSMOS_PARTITION_KEY", "id"))
-
-    results = search_openai_news(max_results=5)
-    logging.info("Tavily results count: %s", len(results))
+    users_container = os.environ.get("COSMOS_USERS_CONTAINER", "users")
+    users = query_items(users_container, "SELECT * FROM c")
     now = datetime.now(timezone.utc).isoformat()
+    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "")
 
-    for result in results:
-        title = result.get("title", "")
-        content = result.get("content", "")
-        url = result.get("url", "")
-        published_at = result.get("published_date") or result.get("published_at")
-        if not (title or content):
+    for user in users:
+        user_id = user.get("userId") or user.get("id")
+        company_flags = user.get("company") or {}
+        if not user_id or not isinstance(company_flags, dict):
             continue
 
-        item_id = hashlib.sha256((url or title or content).encode("utf-8")).hexdigest()
-        pk_value = _get_partition_key_value(pk_field, item_id)
-
-        existing = safe_read_item(container, item_id, pk_value)
-        if existing:
-            logging.info("Skip existing item id=%s title=%s", item_id, title)
+        companies = [name for name, enabled in company_flags.items() if enabled]
+        if not companies:
             continue
 
-        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "")
-        summary_source = content or title
-        summary = summary_source
-        if deployment and summary_source:
-            try:
-                system_prompt, user_prompt = summary_prompt(summary_source)
-                summary = chat_once(
-                    deployment=deployment,
-                    message=user_prompt,
-                    system_prompt=system_prompt,
-                )
-                summary = _clean_plain_text(summary)
-            except Exception:
-                logging.exception("AOAI summarization failed, using original content")
+        for company in companies:
+            results = search_company_news(company, max_results=3)
+            logging.info("Tavily results for %s: %s", company, len(results))
 
-        level_contents: dict[str, str] = {}
-        if deployment and summary_source:
-            for level in ("A1", "A2", "B1", "B2", "C1", "C2"):
-                try:
-                    system_prompt, user_prompt = cefr_prompt(level, summary_source)
-                    level_text = chat_once(
-                        deployment=deployment,
-                        message=user_prompt,
-                        system_prompt=system_prompt,
-                    )
-                    level_text = _clean_plain_text(level_text)
-                    level_contents[f"content_{level.lower()}"] = level_text
-                except Exception:
-                    logging.exception("AOAI CEFR %s generation failed", level)
-        else:
-            logging.info("AOAI deployment not set; skipping CEFR generation")
+            for result in results:
+                title = result.get("title", "")
+                content = result.get("content", "")
+                url = result.get("url", "")
+                published_at = result.get("published_date") or result.get("published_at")
+                if not (title or content):
+                    continue
 
-        item = {
-            "id": item_id,
-            "title": title,
-            "content": summary,
-            "date": published_at,
-            "fetchedAt": now,
-        }
-        item.update(level_contents)
-        if pk_field and pk_field != "id":
-            item[pk_field] = pk_value
-        if url:
-            item["url"] = url
+                item_id = hashlib.sha256(f"{user_id}:{url or title or content}".encode("utf-8")).hexdigest()
+                pk_value = _get_partition_key_value(pk_field, item_id)
 
-        create_item(container, item, partition_key=pk_value)
-        logging.info("Saved item id=%s title=%s", item_id, title)
+                existing = safe_read_item(container, item_id, pk_value)
+                if existing:
+                    logging.info("Skip existing item id=%s title=%s", item_id, title)
+                    continue
+
+                summary_source = content or title
+                summary = summary_source
+                if deployment and summary_source:
+                    try:
+                        system_prompt, user_prompt = summary_prompt(summary_source)
+                        summary = chat_once(
+                            deployment=deployment,
+                            message=user_prompt,
+                            system_prompt=system_prompt,
+                        )
+                        summary = _clean_plain_text(summary)
+                    except Exception:
+                        logging.exception("AOAI summarization failed, using original content")
+
+                level_contents: dict[str, str] = {}
+                if deployment and summary_source:
+                    for level in ("A1", "A2", "B1", "B2", "C1", "C2"):
+                        try:
+                            system_prompt, user_prompt = cefr_prompt(level, summary_source)
+                            level_text = chat_once(
+                                deployment=deployment,
+                                message=user_prompt,
+                                system_prompt=system_prompt,
+                            )
+                            level_text = _clean_plain_text(level_text)
+                            level_contents[f"content_{level.lower()}"] = level_text
+                        except Exception:
+                            logging.exception("AOAI CEFR %s generation failed", level)
+                else:
+                    logging.info("AOAI deployment not set; skipping CEFR generation")
+
+                item = {
+                    "id": item_id,
+                    "userId": user_id,
+                    "company": company,
+                    "companyType": company.lower(),
+                    "title": title,
+                    "content": summary,
+                    "date": published_at,
+                    "fetchedAt": now,
+                }
+                item.update(level_contents)
+                if pk_field and pk_field != "id":
+                    item[pk_field] = pk_value
+                if url:
+                    item["url"] = url
+
+                create_item(container, item, partition_key=pk_value)
+                logging.info("Saved item id=%s title=%s", item_id, title)
 
 
 @app.function_name(name="get_news_http")
 @app.route(route="news", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def get_news_http(req: func.HttpRequest) -> func.HttpResponse:
     container = os.environ.get("COSMOS_CONTAINER", "news_items")
-    items = query_items(container, "SELECT * FROM c")
+    company_type = (req.params.get("companyType") or "").strip().lower()
+    if company_type:
+        company_types = [c.strip() for c in company_type.split(",") if c.strip()]
+        if not company_types:
+            return func.HttpResponse("companyType is empty", status_code=400)
+        items = query_items(
+            container,
+            "SELECT * FROM c WHERE ARRAY_CONTAINS(@companyTypes, c.companyType)",
+            parameters=[{"name": "@companyTypes", "value": company_types}],
+        )
+    else:
+        items = query_items(container, "SELECT * FROM c")
     return func.HttpResponse(
         body=json.dumps(items, ensure_ascii=False), # type: ignore
         mimetype="application/json",

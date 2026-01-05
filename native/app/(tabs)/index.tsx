@@ -1,5 +1,7 @@
 import { Link } from 'expo-router';
-import React, { useEffect, useMemo } from 'react';
+import { useUser } from '@clerk/clerk-expo';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -7,6 +9,7 @@ import {
   StyleSheet,
   Text,
   View,
+  ImageBackground,
 } from 'react-native';
 import { LoadingPing } from '../../components/LoadingPing';
 import { loadNewsList, selectNews } from '../../features/newsSlice';
@@ -26,40 +29,53 @@ export default function HomeScreen() {
     });
   }, []);
 
+  const { user } = useUser();
+  const userId = user?.id;
+  const lastUserId = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    if (status === 'idle') {
-      dispatch(loadNewsList());
+    if (status === 'idle' || lastUserId.current !== userId) {
+      dispatch(loadNewsList(userId));
+      lastUserId.current = userId;
     }
-  }, [dispatch, status]);
+  }, [dispatch, status, userId]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <StatusBar barStyle="dark-content" />
-      <View style={styles.hero}>
-        <View style={styles.heroGlow} />
-        <View style={styles.heroGlowSecondary} />
-        <Text style={styles.appTitle}>AI News Listening</Text>
-        <Text style={styles.heroHeadline}>
-          Listen to today&apos;s news in English!
-        </Text>
-        <Text style={styles.heroSubhead}>
-          Your daily AI brief, tuned to your English level.
-        </Text>
-        <View style={styles.heroRow}>
-          <View style={styles.levelPill}>
-            <Text style={styles.levelLabel}>Level</Text>
-            <Text style={styles.levelValue}>{level}</Text>
+      <ImageBackground
+        source={{
+          uri: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1600&q=80',
+        }}
+        style={styles.hero}
+        imageStyle={styles.heroImage}
+      >
+        <View style={styles.heroOverlay} />
+        <View style={styles.heroContent}>
+          <Text style={styles.appTitle}>AI News Listening</Text>
+          <Text style={styles.heroHeadline}>
+            Listen to today&apos;s news in English!
+          </Text>
+          <Text style={styles.heroSubhead}>
+            Your daily AI brief, tuned to your English level.
+          </Text>
+          <View style={styles.heroRow}>
+            <View style={styles.levelPill}>
+              <Text style={styles.levelLabel}>Level</Text>
+              <Text style={styles.levelValue}>{level}</Text>
+            </View>
           </View>
         </View>
-      </View>
+      </ImageBackground>
 
       <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Weekly News</Text>
-          <Text style={styles.sectionSubtitle}>{todayLabel} · Last 7 days</Text>
-        </View>
-        <Pressable style={styles.filterChip}>
-          <Text style={styles.filterText}>AI</Text>
+        <Text style={styles.sectionTitle}>🗞️ Weekly News</Text>
+        <Pressable
+          style={styles.syncButton}
+          onPress={() => dispatch(loadNewsList(userId))}
+        >
+          <Ionicons name="sync" size={16} color="#FF385C" />
+          <Text style={styles.syncText}>Sync</Text>
         </Pressable>
       </View>
 
@@ -75,9 +91,8 @@ export default function HomeScreen() {
           <Link key={item.id} href={`/news/${item.id}`} asChild>
             <Pressable style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.cardTag}>AI</Text>
-                <Text style={styles.cardDate}>
-                  {formatDate(item.date ?? item.fetchedAt)}
+                <Text style={styles.cardTag}>
+                  {item.company ?? 'AI'}
                 </Text>
               </View>
               <Text style={styles.cardTitle}>{item.title}</Text>
@@ -85,7 +100,6 @@ export default function HomeScreen() {
                 {truncateText(pickContentByLevel(item, level), 120)}
               </Text>
               <View style={styles.cardFooter}>
-                <Text style={styles.cardSource}>OpenAI</Text>
                 <Text style={styles.cardLink}>Open →</Text>
               </View>
             </Pressable>
@@ -122,10 +136,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 36,
     paddingBottom: 28,
-    backgroundColor: '#FFF7F7',
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
     overflow: 'hidden',
+  },
+  heroImage: {
+    resizeMode: 'cover',
+  },
+  heroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+  },
+  heroContent: {
+    position: 'relative',
   },
   heroGlow: {
     position: 'absolute',
@@ -152,20 +173,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textTransform: 'uppercase',
     letterSpacing: 2,
-    color: '#6B7280',
+    color: '#E2E8F0',
     marginBottom: 12,
   },
   heroHeadline: {
     fontFamily: 'Georgia',
     fontSize: 30,
-    color: '#111827',
+    color: '#F8FAFC',
     marginBottom: 12,
   },
   heroSubhead: {
     fontFamily: 'Avenir Next',
     fontSize: 16,
     lineHeight: 22,
-    color: '#374151',
+    color: '#E2E8F0',
     marginBottom: 20,
   },
   heroRow: {
@@ -180,19 +201,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     borderWidth: 1,
-    borderColor: '#FEE2E2',
+    borderColor: 'rgba(248, 250, 252, 0.35)',
   },
   levelLabel: {
     fontFamily: 'Avenir Next',
     fontSize: 12,
-    color: '#6B7280',
+    color: '#E2E8F0',
   },
   levelValue: {
     fontFamily: 'Avenir Next',
     fontSize: 14,
-    color: '#111827',
+    color: '#F8FAFC',
     fontWeight: '600',
   },
   sectionHeader: {
@@ -201,6 +222,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  syncButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#FFE5EA',
+  },
+  syncText: {
+    fontFamily: 'Avenir Next',
+    fontSize: 12,
+    color: '#FF385C',
+    fontWeight: '600',
   },
   sectionTitle: {
     fontFamily: 'Georgia',
@@ -292,8 +328,8 @@ const styles = StyleSheet.create({
   cardFooter: {
     marginTop: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
   },
   cardSource: {
     fontFamily: 'Avenir Next',

@@ -15,10 +15,13 @@ const initialState: InitialStateType = {
   error: null,
 };
 
-export const loadNewsList = createAsyncThunk('news/loadNewsList', async () => {
-  const items = await fetchNewsList();
-  return items;
-});
+export const loadNewsList = createAsyncThunk<CosmosNewsItem[], string | undefined>(
+  'news/loadNewsList',
+  async (userId) => {
+    const items = await fetchNewsList(userId);
+    return items;
+  }
+);
 
 export const newsSlice = createSlice({
   name: 'news',

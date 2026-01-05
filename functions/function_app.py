@@ -10,7 +10,7 @@ import azure.functions as func  # type: ignore
 from app.aoai.service import chat_once
 from app.aoai.prompts import cefr_prompt, summary_prompt
 from app.auth.clerk import get_bearer_token, verify_clerk_jwt
-from app.cosmos.repository import create_item, safe_read_item, query_items
+from app.cosmos.repository import create_item, safe_read_item, query_items, upsert_item
 from app.tavily.service import search_company_news
 
 app = func.FunctionApp()
@@ -150,18 +150,38 @@ def get_news(myTimer: func.TimerRequest) -> None:
 @app.route(route="news", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def get_news_http(req: func.HttpRequest) -> func.HttpResponse:
     container = os.environ.get("COSMOS_CONTAINER", "news_items")
-    company_type = (req.params.get("companyType") or "").strip().lower()
-    if company_type:
-        company_types = [c.strip() for c in company_type.split(",") if c.strip()]
-        if not company_types:
-            return func.HttpResponse("companyType is empty", status_code=400)
-        items = query_items(
-            container,
-            "SELECT * FROM c WHERE ARRAY_CONTAINS(@companyTypes, c.companyType)",
-            parameters=[{"name": "@companyTypes", "value": company_types}],
-        )
+    user_id = (req.params.get("userId") or "").strip()
+    if user_id:
+        users_container = os.environ.get("COSMOS_USERS_CONTAINER", "users")
+        user = safe_read_item(users_container, user_id, user_id)
+        company_flags = (user or {}).get("company") or {}
+        company_types = [
+            name.lower() for name, enabled in company_flags.items() if enabled
+        ]
+        if company_types:
+            items = query_items(
+                container,
+                "SELECT * FROM c WHERE c.userId = @userId AND ARRAY_CONTAINS(@companyTypes, c.companyType)",
+                parameters=[
+                    {"name": "@userId", "value": user_id},
+                    {"name": "@companyTypes", "value": company_types},
+                ],
+            )
+        else:
+            items = []
     else:
-        items = query_items(container, "SELECT * FROM c")
+        company_type = (req.params.get("companyType") or "").strip().lower()
+        if company_type:
+            company_types = [c.strip() for c in company_type.split(",") if c.strip()]
+            if not company_types:
+                return func.HttpResponse("companyType is empty", status_code=400)
+            items = query_items(
+                container,
+                "SELECT * FROM c WHERE ARRAY_CONTAINS(@companyTypes, c.companyType)",
+                parameters=[{"name": "@companyTypes", "value": company_types}],
+            )
+        else:
+            items = query_items(container, "SELECT * FROM c")
     return func.HttpResponse(
         body=json.dumps(items, ensure_ascii=False), # type: ignore
         mimetype="application/json",

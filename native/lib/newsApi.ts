@@ -11,8 +11,12 @@ function getNewsApiUrl() {
   return NEWS_API_URL;
 }
 
-export async function fetchNewsList(): Promise<CosmosNewsItem[]> {
-  const response = await axios.get(getNewsApiUrl(), {
+export async function fetchNewsList(userId?: string): Promise<CosmosNewsItem[]> {
+  const baseUrl = getNewsApiUrl();
+  const url = userId
+    ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}userId=${encodeURIComponent(userId)}`
+    : baseUrl;
+  const response = await axios.get(url, {
     headers: { 'Content-Type': 'application/json' },
     timeout: 15000,
   });

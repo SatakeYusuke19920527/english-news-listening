@@ -1,5 +1,5 @@
 import { useClerk, useUser } from '@clerk/clerk-expo';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
@@ -37,7 +37,14 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: true,
-        headerTitle: 'AI News Listening',
+        headerTitle: () => (
+          <MaterialCommunityIcons
+            name="bird"
+            size={28}
+            color="#FF385C"
+            accessibilityLabel="AI News Listening"
+          />
+        ),
         headerTitleAlign: 'left',
         headerTitleStyle: {
           fontFamily: 'Avenir Next',

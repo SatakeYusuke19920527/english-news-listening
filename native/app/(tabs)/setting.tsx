@@ -1,4 +1,4 @@
-import { useAuth, useOAuth, useUser } from '@clerk/clerk-expo';
+import { useAuth, useClerk, useOAuth, useUser } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
 import React from 'react';
 import {
@@ -8,6 +8,7 @@ import {
   Switch,
   Text,
   View,
+  Image,
 } from 'react-native';
 import { selectNews } from '../../features/newsSlice';
 import {
@@ -47,6 +48,7 @@ export default function SettingScreen() {
   const newsSources = useAppSelector(selectNewsSources);
   const { news } = useAppSelector(selectNews);
   const { isSignedIn, user } = useUser();
+  const { signOut } = useClerk();
   const { getToken } = useAuth();
   const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
   const primaryEmail = user?.primaryEmailAddress?.emailAddress;
@@ -55,11 +57,20 @@ export default function SettingScreen() {
   const userId = user?.id;
   WebBrowser.maybeCompleteAuthSession();
   const handleGoogleSignIn = async () => {
+    if (isSignedIn) return;
     try {
       const { createdSessionId, setActive } = await startOAuthFlow();
       if (createdSessionId && setActive) {
         await setActive({ session: createdSessionId });
       }
+    } catch (err) {
+      console.error(JSON.stringify(err, null, 2));
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
     } catch (err) {
       console.error(JSON.stringify(err, null, 2));
     }
@@ -133,21 +144,35 @@ export default function SettingScreen() {
       </View>
 
       <View style={styles.loginCard}>
-        <View>
-          <Text style={styles.loginTitle}>
-            {isSignedIn ? 'Signed in' : 'Not signed in'}
-          </Text>
-          <Text style={styles.loginBody}>
-            {isSignedIn
-              ? `Signed in as ${displayName}.`
-              : 'Sign in to sync your level and saved articles across devices.'}
-          </Text>
-        </View>
-        {!isSignedIn && (
+        {isSignedIn ? (
+          <View style={styles.userRow}>
+            <View style={styles.avatarWrap}>
+              {user?.imageUrl ? (
+                <Image source={{ uri: user.imageUrl }} style={styles.avatar} />
+              ) : null}
+            </View>
+            <View style={styles.userInfo}>
+              <Text style={styles.loginTitle}>
+                {user?.fullName ?? user?.username ?? 'Member'}
+              </Text>
+              <Text style={styles.loginBody}>
+                {user?.primaryEmailAddress?.emailAddress ?? ''}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View>
+            <Text style={styles.loginTitle}>Not signed in</Text>
+            <Text style={styles.loginBody}>
+              Sign in to sync your level and saved articles across devices.
+            </Text>
+          </View>
+        )}
+        {!isSignedIn ? (
           <Pressable style={styles.loginButton} onPress={handleGoogleSignIn}>
             <Text style={styles.loginButtonText}>Sign in</Text>
           </Pressable>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.section}>
@@ -292,6 +317,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FFFFFF',
     fontWeight: '700',
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  avatarWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  userInfo: {
+    flex: 1,
   },
   section: {
     marginTop: 28,
